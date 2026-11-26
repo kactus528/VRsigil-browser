@@ -32,6 +32,9 @@
   .tabs button[aria-pressed=true] { border-color:var(--accent); color:var(--accent); }
   .help { color:var(--dim); font-size:15px; }
   .help b { color:var(--text); }
+  #fullView { position:fixed; inset:0; background:#000; display:none; z-index:10; cursor:pointer; }
+  #fullView canvas { position:absolute; inset:0; width:100%; height:100%; border:0; border-radius:0; aspect-ratio:auto; }
+  #fullView p { position:absolute; left:0; right:0; bottom:16px; text-align:center; color:#666; font-size:14px; margin:0; }
   .pair { display:flex; gap:10px; align-items:center; }
   .pair input[type=range] { flex:1 1 auto; }
   .pair input[type=number] { flex:0 0 110px; padding:10px; border-radius:8px; border:1px solid var(--line); background:#0f0f12; color:var(--text); font-size:17px; }
@@ -48,6 +51,10 @@
         <button id="reroll" style="flex:1">Randomize</button>
         <button id="rotate" style="flex:1">Rotate 90°</button>
       </div>
+      <h2 style="font-size:15px;color:var(--accent);margin:18px 0 6px">Headset preview</h2>
+      <canvas id="view" width="900" height="760" style="aspect-ratio:900/760" aria-label="How big the sigil looks in the headset"></canvas>
+      <p class="help" id="viewNote" style="margin:6px 0 0;font-size:14px"></p>
+      <button id="full" style="width:100%;margin-top:8px">Full-window preview</button>
     </section>
     <section>
       <div class="tabs">
@@ -68,7 +75,9 @@
       </div>
       <div class="row">
         <div style="flex:0 0 auto"><label for="color">Color</label><input type="color" id="color" value="#ffffff"></div>
-        <div><label for="size">Size in view: <span id="sizeOut"></span>°</label><input type="range" id="size" min="15" max="80" value="40"></div>
+        <div><label for="sizeNum">Size in view (degrees)</label>
+          <div class="pair"><input type="range" id="size" min="5" max="100" step="1" value="40" aria-label="Size slider">
+            <input type="number" id="sizeNum" min="5" max="100" step="1" inputmode="numeric"></div></div>
       </div>
       <label for="mode">Trigger</label>
       <select id="mode">
@@ -129,6 +138,7 @@
     <b>How to use it.</b> In the Sigil Trigger browser on your Quest, type <b>sigil.invalid</b> in the address bar to open this page, then press Send. Then play any 360° or 180° video (YouTube works), go full screen and pick 360°. Press <b>A+B</b> on the right controller for the sigil; the video pauses underneath and picks up where it stopped. <b>X</b> on the left controller dismisses it instantly. In any other browser, Send does nothing.
   </section>
 </main>
+<div id="fullView" role="dialog" aria-label="Full-window preview"><canvas id="fullCanvas"></canvas><p>Tap anywhere to close</p></div>
 <script>
 {
 const $ = id => document.getElementById(id);
@@ -225,8 +235,45 @@ function draw() {
   ctx.translate(W/2, W/2); ctx.rotate(turns * Math.PI / 2);
   if (source === 'intent') drawIntent(rng(hash(reduceIntent($('intent').value, $('novowels').checked).join('')) ^ seed));
   else drawImported();
-  $('sizeOut').textContent = $('size').value;
+  drawView();
 }
+
+// Quest 2 shows roughly 90° across. The preview frame stands for that, and the sigil
+// is drawn at the same share of it that it will take up in the headset.
+const HEADSET_FOV = 90;
+function sigilShare() {
+  const deg = Math.min(100, Math.max(5, +$('size').value));
+  return Math.tan(deg * Math.PI / 360) / Math.tan(HEADSET_FOV * Math.PI / 360);
+}
+function paintView(c) {
+  const g = c.getContext('2d'), w = c.width, h = c.height;
+  g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+  const side = sigilShare() * w;
+  g.drawImage(canvas, (w - side) / 2, (h - side) / 2, side, side);
+}
+function drawView() {
+  if (document.activeElement !== $('sizeNum')) $('sizeNum').value = $('size').value;
+  paintView($('view'));
+  const share = Math.round(sigilShare() * 100);
+  $('viewNote').textContent = share >= 100
+    ? 'Fills your whole view and a little past the edges.'
+    : `Takes up about ${share}% of your view across (${$('size').value}° of roughly ${HEADSET_FOV}°).`;
+  if ($('fullView').style.display === 'block') paintFull();
+}
+function paintFull() {
+  const c = $('fullCanvas');
+  c.width = Math.round(innerWidth * devicePixelRatio); c.height = Math.round(innerHeight * devicePixelRatio);
+  paintView(c);
+}
+$('full').addEventListener('click', () => { $('fullView').style.display = 'block'; paintFull(); });
+$('fullView').addEventListener('click', () => { $('fullView').style.display = 'none'; });
+addEventListener('keydown', e => { if (e.key === 'Escape') $('fullView').style.display = 'none'; });
+addEventListener('resize', () => { if ($('fullView').style.display === 'block') paintFull(); });
+$('sizeNum').addEventListener('input', () => {
+  const v = parseFloat($('sizeNum').value); if (isNaN(v)) return;
+  $('size').value = String(Math.min(100, Math.max(5, v))); drawView(); persist();
+});
+$('sizeNum').addEventListener('change', () => { $('sizeNum').value = $('size').value; });
 
 function setSource(s) {
   source = s;
