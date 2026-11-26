@@ -70,6 +70,8 @@ const char* const kOnAppFocusChangedName = "onAppFocusChanged";
 const char* const kOnAppFocusChangedSignature = "(Z)V";
 const char* const kOnSigilStateChangedName = "onSigilStateChanged";
 const char* const kOnSigilStateChangedSignature = "(Z)V";
+const char* const kOnSigilComboLearnedName = "onSigilComboLearned";
+const char* const kOnSigilComboLearnedSignature = "(II)V";
 const char* const kSetEyeTrackingSupported = "setEyeTrackingSupported";
 const char* const kSetEyeTrackingSupportedSignature = "(Z)V";
 const char* const kSetHandTrackingSupported = "setHandTrackingSupported";
@@ -114,6 +116,7 @@ jmethodID sAppendAppNotesToCrashReport = nullptr;
 jmethodID sUpdateControllerBatteryLevels = nullptr;
 jmethodID sOnAppFocusChanged = nullptr;
 jmethodID sOnSigilStateChanged = nullptr;
+jmethodID sOnSigilComboLearned = nullptr;
 jmethodID sSetEyeTrackingSupported = nullptr;
 jmethodID sSetHandTrackingSupported = nullptr;
 jmethodID sOnControllersAvailable = nullptr;
@@ -169,6 +172,7 @@ VRBrowser::InitializeJava(JNIEnv* aEnv, jobject aActivity) {
   sUpdateControllerBatteryLevels = FindJNIMethodID(sEnv, sBrowserClass, kUpdateControllerBatteryLevelsName, kUpdateControllerBatteryLevelsSignature);
   sOnAppFocusChanged = FindJNIMethodID(sEnv, sBrowserClass, kOnAppFocusChangedName, kOnAppFocusChangedSignature);
   sOnSigilStateChanged = FindJNIMethodID(sEnv, sBrowserClass, kOnSigilStateChangedName, kOnSigilStateChangedSignature);
+  sOnSigilComboLearned = FindJNIMethodID(sEnv, sBrowserClass, kOnSigilComboLearnedName, kOnSigilComboLearnedSignature);
   sSetEyeTrackingSupported = FindJNIMethodID(sEnv, sBrowserClass, kSetEyeTrackingSupported, kSetEyeTrackingSupportedSignature);
   sSetHandTrackingSupported = FindJNIMethodID(sEnv, sBrowserClass, kSetHandTrackingSupported, kSetHandTrackingSupportedSignature);
   sOnControllersAvailable = FindJNIMethodID(sEnv, sBrowserClass, kOnControllersAvailable, kOnControllersAvailableSignature);
@@ -205,6 +209,7 @@ VRBrowser::ShutdownJava() {
   sRegisterExternalContext = nullptr;
   sOnAppFocusChanged = nullptr;
   sOnSigilStateChanged = nullptr;
+  sOnSigilComboLearned = nullptr;
   sOnEnterWebXR = nullptr;
   sOnExitWebXR = nullptr;
   sOnDismissWebXRInterstitial = nullptr;
@@ -477,6 +482,13 @@ void
 VRBrowser::OnSigilStateChanged(const bool aShown) {
   if (!ValidateMethodID(sEnv, sActivity, sOnSigilStateChanged, __FUNCTION__)) { return; }
   sEnv->CallVoidMethod(sActivity, sOnSigilStateChanged, (jboolean) aShown);
+  CheckJNIException(sEnv, __FUNCTION__);
+}
+
+void
+VRBrowser::OnSigilComboLearned(const jint aLeftMask, const jint aRightMask) {
+  if (!ValidateMethodID(sEnv, sActivity, sOnSigilComboLearned, __FUNCTION__)) { return; }
+  sEnv->CallVoidMethod(sActivity, sOnSigilComboLearned, aLeftMask, aRightMask);
   CheckJNIException(sEnv, __FUNCTION__);
 }
 

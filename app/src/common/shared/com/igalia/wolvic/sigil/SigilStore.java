@@ -39,8 +39,20 @@ public class SigilStore {
     public static final int MODE_TOGGLE = 1;
 
     public interface Listener {
-        void onSigilChanged(@NonNull String path, int mode, float sizeDegrees);
+        void onSigilChanged(@NonNull SigilStore store);
+        /** The Sigil Maker asked to detect a button combo from the controllers. */
+        default void onComboLearnRequested() {}
     }
+
+    private static final String LEARN_PREFIX = "https://sigil.invalid/learn";
+    @Nullable private String mPendingLearnBack;
+
+    // Controller button bits, matching ControllerDelegate::Button in the native code.
+    private static final int BUTTON_SQUEEZE = 1 << 1;
+    private static final int BUTTON_A = 1 << 4;
+    private static final int BUTTON_B = 1 << 5;
+    private static final int BUTTON_X = 1 << 6;
+    private static final int BUTTON_Y = 1 << 7;
 
     private static SigilStore sInstance;
     private final Context mContext;
@@ -61,8 +73,47 @@ public class SigilStore {
         return aUri != null && aUri.startsWith(HANDOFF_PREFIX);
     }
 
+    public static boolean isLearnUri(@Nullable String aUri) {
+        return aUri != null && aUri.startsWith(LEARN_PREFIX);
+    }
+
+    /** Starts combo detection; the result goes back to the page given in "back". */
+    public void handleLearnUri(@NonNull String aUri) {
+        String back = Uri.parse(aUri).getQueryParameter("back");
+        if (back == null || !(back.startsWith("https://") || back.startsWith("http://") || back.startsWith(MAKER_URL))) {
+            back = MAKER_URL;
+        }
+        int hash = back.indexOf('#');
+        mPendingLearnBack = hash >= 0 ? back.substring(0, hash) : back;
+        for (Listener listener : mListeners) {
+            listener.onComboLearnRequested();
+        }
+    }
+
+    /**
+     * @return the page to return to with the detected buttons in its hash
+     * (e.g. "#combo=A,B" or "#combo=none"), or null if nothing was waiting.
+     */
+    @Nullable
+    public String takeLearnResult(int aLeftMask, int aRightMask) {
+        String back = mPendingLearnBack;
+        mPendingLearnBack = null;
+        if (back == null) {
+            return null;
+        }
+        StringBuilder tokens = new StringBuilder();
+        if ((aRightMask & BUTTON_A) != 0) tokens.append("A,");
+        if ((aRightMask & BUTTON_B) != 0) tokens.append("B,");
+        if ((aRightMask & BUTTON_SQUEEZE) != 0) tokens.append("RG,");
+        if ((aLeftMask & BUTTON_X) != 0) tokens.append("X,");
+        if ((aLeftMask & BUTTON_Y) != 0) tokens.append("Y,");
+        if ((aLeftMask & BUTTON_SQUEEZE) != 0) tokens.append("LG,");
+        String list = tokens.length() > 0 ? tokens.substring(0, tokens.length() - 1) : "none";
+        return back + "#combo=" + list;
+    }
+
     public static boolean isMakerShortcut(@Nullable String aUri) {
-        return aUri != null && !isHandoffUri(aUri)
+        return aUri != null && !isHandoffUri(aUri) && !isLearnUri(aUri)
                 && (aUri.startsWith("https://sigil.invalid") || aUri.startsWith("http://sigil.invalid"));
     }
 
@@ -79,6 +130,12 @@ public class SigilStore {
     }
 
     public int getMode() { return prefs().getInt("mode", MODE_HOLD); }
+    /** Trigger buttons per hand. Default: A+B on the right controller. */
+    public int getComboLeft() { return prefs().getInt("comboLeft", 0); }
+    public int getComboRight() { return prefs().getInt("comboRight", BUTTON_A | BUTTON_B); }
+    /** Emergency-dismiss buttons per hand. Default: X on the left controller. */
+    public int getDismissLeft() { return prefs().getInt("dismissLeft", BUTTON_X); }
+    public int getDismissRight() { return prefs().getInt("dismissRight", 0); }
     public int getSoundMode() { return prefs().getInt("sound", SigilTone.SOUND_OFF); }
     public float getCarrierHz() { return prefs().getFloat("carrier", 200f); }
     public float getBeatHz() { return prefs().getFloat("beat", 6f); }
@@ -119,6 +176,19 @@ public class SigilStore {
             if (size != null) {
                 editor.putFloat("size", Math.max(5f, Math.min(100f, Float.parseFloat(size))));
             }
+            // combo=A,B  dismiss=X   (A, B, RG = right hand; X, Y, LG = left hand; G = grip)
+            String combo = uri.getQueryParameter("combo");
+            if (combo != null) {
+                int[] masks = parseButtons(combo);
+                if ((masks[0] | masks[1]) != 0) {
+                    editor.putInt("comboLeft", masks[0]).putInt("comboRight", masks[1]);
+                }
+            }
+            String dismiss = uri.getQueryParameter("dismiss");
+            if (dismiss != null) {
+                int[] masks = parseButtons(dismiss);
+                editor.putInt("dismissLeft", masks[0]).putInt("dismissRight", masks[1]);
+            }
             String sound = uri.getQueryParameter("sound");
             if (sound != null) {
                 int soundMode = SigilTone.SOUND_OFF;
@@ -150,9 +220,25 @@ public class SigilStore {
         return (hash >= 0 ? back.substring(0, hash) : back) + (ok ? "#saved" : "#failed");
     }
 
+    /** @return {leftMask, rightMask} */
+    private static int[] parseButtons(@NonNull String aList) {
+        int left = 0, right = 0;
+        for (String token : aList.toUpperCase().split(",")) {
+            switch (token.trim()) {
+                case "A": right |= BUTTON_A; break;
+                case "B": right |= BUTTON_B; break;
+                case "RG": right |= BUTTON_SQUEEZE; break;
+                case "X": left |= BUTTON_X; break;
+                case "Y": left |= BUTTON_Y; break;
+                case "LG": left |= BUTTON_SQUEEZE; break;
+            }
+        }
+        return new int[] { left, right };
+    }
+
     public void notifyChanged() {
         for (Listener listener : mListeners) {
-            listener.onSigilChanged(getImagePath(), getMode(), getSizeDegrees());
+            listener.onSigilChanged(this);
         }
     }
 

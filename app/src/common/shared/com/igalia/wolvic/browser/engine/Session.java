@@ -1177,6 +1177,12 @@ public class Session implements WContentBlocking.Delegate, WSession.NavigationDe
             }
             return WResult.deny();
         }
+        if (com.igalia.wolvic.sigil.SigilStore.isLearnUri(uri)) {
+            if (mContext != null) {
+                com.igalia.wolvic.sigil.SigilStore.get(mContext).handleLearnUri(uri);
+            }
+            return WResult.deny();
+        }
         if (com.igalia.wolvic.sigil.SigilStore.isMakerShortcut(uri)) {
             new Handler(Looper.getMainLooper()).post(() -> loadUri(com.igalia.wolvic.sigil.SigilStore.MAKER_URL));
             return WResult.deny();

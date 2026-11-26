@@ -35,6 +35,11 @@
   #fullView { position:fixed; inset:0; background:#000; display:none; z-index:10; cursor:pointer; }
   #fullView canvas { position:absolute; inset:0; width:100%; height:100%; border:0; border-radius:0; aspect-ratio:auto; }
   #fullView p { position:absolute; left:0; right:0; bottom:16px; text-align:center; color:#666; font-size:14px; margin:0; }
+  .btns { display:grid; grid-template-columns:auto repeat(3, minmax(0,1fr)); gap:8px; align-items:center; }
+  .hand { color:var(--dim); font-size:14px; padding-right:4px; }
+  .chip { display:flex; align-items:center; justify-content:center; gap:8px; margin:0; min-height:48px; border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:16px; cursor:pointer; }
+  .chip:has(input:checked) { border-color:var(--accent); color:var(--accent); }
+  .chip input { width:20px; height:20px; }
   .pair { display:flex; gap:10px; align-items:center; }
   .pair input[type=range] { flex:1 1 auto; }
   .pair input[type=number] { flex:0 0 110px; padding:10px; border-radius:8px; border:1px solid var(--line); background:#0f0f12; color:var(--text); font-size:17px; }
@@ -79,11 +84,27 @@
           <div class="pair"><input type="range" id="size" min="5" max="100" step="1" value="40" aria-label="Size slider">
             <input type="number" id="sizeNum" min="5" max="100" step="1" inputmode="numeric"></div></div>
       </div>
-      <label for="mode">Trigger</label>
+      <h2 style="font-size:15px;color:var(--accent);margin:20px 0 0">Trigger</h2>
+      <label>Buttons to hold together</label>
+      <div class="btns" id="comboBtns">
+        <span class="hand">Right</span>
+        <label class="chip"><input type="checkbox" value="A"> A</label>
+        <label class="chip"><input type="checkbox" value="B"> B</label>
+        <label class="chip"><input type="checkbox" value="RG"> Grip</label>
+        <span class="hand">Left</span>
+        <label class="chip"><input type="checkbox" value="X"> X</label>
+        <label class="chip"><input type="checkbox" value="Y"> Y</label>
+        <label class="chip"><input type="checkbox" value="LG"> Grip</label>
+      </div>
+      <button id="detect" style="width:100%;margin-top:10px">Detect from controllers</button>
+      <p class="help" id="comboNote" style="margin:6px 0 0;font-size:14px"></p>
+      <label for="mode">Activation</label>
       <select id="mode">
-        <option value="hold">Hold A+B to show</option>
-        <option value="toggle">Press A+B to show, again to dismiss</option>
+        <option value="hold">Hold to show</option>
+        <option value="toggle">Press to show, press again to dismiss</option>
       </select>
+      <label for="dismiss">Emergency dismiss button</label>
+      <select id="dismiss"></select>
       <h2 style="font-size:15px;color:var(--accent);margin:20px 0 0">Sound while the sigil shows</h2>
       <label for="sound">Type</label>
       <select id="sound">
@@ -147,10 +168,11 @@ const store = {
   save(o) { try { localStorage.setItem('sigilMaker', JSON.stringify(o)); } catch {} }
 };
 const saved = store.load();
-['intent','color','size','mode','sound','beat','carrier','volume','fade'].forEach(k => { if (saved[k] != null) $(k).value = saved[k]; });
+['intent','color','size','mode','dismiss','sound','beat','carrier','volume','fade'].forEach(k => { if (saved[k] != null) $(k).value = saved[k]; });
 ['novowels','ring'].forEach(k => { if (saved[k] != null) $(k).checked = saved[k]; });
 let seed = saved.seed ?? 1, turns = saved.turns ?? 0, source = 'intent', imported = null;
 const persist = () => store.save({ intent:$('intent').value, color:$('color').value, size:$('size').value, mode:$('mode').value,
+  combo:getCombo(), dismiss:$('dismiss').value,
   sound:$('sound').value, beat:$('beat').value, carrier:$('carrier').value, volume:$('volume').value, fade:$('fade').value,
   novowels:$('novowels').checked, ring:$('ring').checked, seed, turns });
 
@@ -300,9 +322,11 @@ function setMsg(t, cls) { const m = $('msg'); m.textContent = t; m.className = c
 
 $('send').addEventListener('click', () => {
   if (source === 'import' && !imported) { setMsg('Pick an image first.', 'bad'); return; }
+  if (!getCombo().length) { setMsg('Choose at least one trigger button.', 'bad'); return; }
   const b64 = canvas.toDataURL('image/png').split(',')[1].replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const back = location.href.split('#')[0];
   const url = 'https://sigil.invalid/set?mode=' + $('mode').value + '&size=' + $('size').value +
+              '&combo=' + getCombo().join(',') + '&dismiss=' + $('dismiss').value +
               '&sound=' + $('sound').value + '&beat=' + $('beat').value + '&carrier=' + $('carrier').value +
               '&volume=' + ($('volume').value / 100) + '&fade=' + $('fade').value +
               '&back=' + encodeURIComponent(back) + '&img=' + b64;
@@ -312,6 +336,33 @@ $('send').addEventListener('click', () => {
   clearTimeout(noAnswer);
   noAnswer = setTimeout(() => setMsg('Nothing answered. Open this page in the Sigil Trigger browser on your Quest.', 'bad'), 2500);
 });
+
+/* ---- trigger buttons ---- */
+const NAMES = { A:'A', B:'B', RG:'right grip', X:'X', Y:'Y', LG:'left grip' };
+const ALL = Object.keys(NAMES);
+const comboBoxes = () => [...document.querySelectorAll('#comboBtns input')];
+function getCombo() { return comboBoxes().filter(b => b.checked).map(b => b.value); }
+function setCombo(list) { comboBoxes().forEach(b => { b.checked = list.includes(b.value); }); syncTrigger(); persist(); }
+function comboText(list = getCombo()) { return list.map(k => NAMES[k]).join(' + ') || 'nothing'; }
+function syncTrigger() {
+  const combo = getCombo(), prev = $('dismiss').value || saved.dismiss || 'X';
+  const opts = ['none', ...ALL.filter(k => !combo.includes(k))];
+  $('dismiss').innerHTML = opts.map(k => `<option value="${k}">${k === 'none' ? 'None' : NAMES[k]}</option>`).join('');
+  $('dismiss').value = opts.includes(prev) ? prev : (opts.includes('X') ? 'X' : 'none');
+  const hands = new Set(combo.map(k => ['A','B','RG'].includes(k) ? 'right' : 'left'));
+  $('comboNote').textContent = !combo.length ? 'Pick at least one button.'
+    : combo.length === 1 ? `Just ${comboText()}: easy to press by accident. Two buttons are safer.`
+    : `Trigger: ${comboText()}${hands.size === 2 ? ' (both hands)' : ''}. While a 360° video plays, these buttons only work as the trigger.`;
+}
+comboBoxes().forEach(b => b.addEventListener('change', () => { syncTrigger(); persist(); }));
+$('dismiss').addEventListener('change', persist);
+$('detect').addEventListener('click', () => {
+  setMsg('Now hold the buttons you want on your controllers, then let go…');
+  location.href = 'https://sigil.invalid/learn?back=' + encodeURIComponent(location.href.split('#')[0]);
+  clearTimeout(noAnswer);
+  noAnswer = setTimeout(() => setMsg('Detection only works inside the Sigil Browser on the Quest.', 'bad'), 16000);
+});
+setCombo(saved.combo && saved.combo.length ? saved.combo : ['A', 'B']);
 
 let noAnswer = 0;
 /* ---- sound settings + preview (same recipe as the browser's tone generator) ---- */
@@ -389,7 +440,14 @@ syncSound();
 
 function showResult() {
   clearTimeout(noAnswer);
-  if (location.hash === '#saved') setMsg('Saved. Press A+B during a 360° video to see it.', 'ok');
+  const m = /^#combo=([A-Z,]+)$/.exec(location.hash);
+  if (m) {
+    if (m[1] === 'NONE') setMsg('No buttons detected. Tap Detect and try again.', 'bad');
+    else { setCombo(m[1].split(',')); setMsg('Detected ' + comboText() + '. Press Send to save it.', 'ok'); }
+    try { history.replaceState(null, '', location.href.split('#')[0]); } catch {}
+    return;
+  }
+  if (location.hash === '#saved') setMsg('Saved. Press ' + comboText() + ' during a 360° video to see it.', 'ok');
   else if (location.hash === '#failed') setMsg('The browser couldn’t read that image. Try again.', 'bad');
 }
 addEventListener('hashchange', showResult);

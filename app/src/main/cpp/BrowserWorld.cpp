@@ -200,7 +200,7 @@ struct BrowserWorld::State {
   WidgetPtr resizingWidget;
   SplashAnimationPtr splashAnimation;
   VRVideoPtr vrVideo;
-  // Sigil trigger: A+B on the right controller swaps a 360/180 video for the sigil.
+  // Sigil trigger: a button combo (A+B by default) swaps a 360/180 video for the sigil.
   SigilPtr sigil;
   std::string sigilPath;
   float sigilSizeDegrees = 40.0f;
@@ -210,6 +210,18 @@ struct BrowserWorld::State {
   bool sigilSuppressed = false; // set by the emergency dismiss until A+B are released
   bool sigilPrevCombo = false;
   bool sigilPrevDismiss = false;
+  // Which buttons make up the trigger and the dismiss, per hand (ControllerDelegate bits).
+  // Every button in both masks must be held; an empty mask means "nothing on that hand".
+  uint32_t sigilComboLeft = 0;
+  uint32_t sigilComboRight = ControllerDelegate::BUTTON_A | ControllerDelegate::BUTTON_B;
+  uint32_t sigilDismissLeft = ControllerDelegate::BUTTON_X;
+  uint32_t sigilDismissRight = 0;
+  // Combo detection ("Detect" in the Sigil Maker): record every allowed button held
+  // until all are released again.
+  bool sigilLearning = false;
+  double sigilLearnStart = 0.0;
+  uint32_t sigilLearnLeft = 0;
+  uint32_t sigilLearnRight = 0;
   PerformanceMonitorPtr monitor;
   WidgetMoverPtr movingWidget;
   WidgetResizerPtr widgetResizer;
@@ -272,6 +284,7 @@ struct BrowserWorld::State {
   void UpdateGazeModeState();
   void UpdateControllers(bool& aRelayoutWidgets);
   void UpdateSigil();
+  void UpdateSigilLearning();
   void SetSigilVisible(bool aVisible);
   void UpdateTrackedKeyboard();
   void SimulateBack();
@@ -717,8 +730,45 @@ BrowserWorld::State::SetSigilVisible(bool aVisible) {
   VRBrowser::OnSigilStateChanged(aVisible);
 }
 
+// Buttons the sigil trigger may use. The trigger and thumbsticks stay with the browser.
+static const uint32_t kSigilAllowedButtons =
+    ControllerDelegate::BUTTON_A | ControllerDelegate::BUTTON_B |
+    ControllerDelegate::BUTTON_X | ControllerDelegate::BUTTON_Y |
+    ControllerDelegate::BUTTON_SQUEEZE;
+
+void
+BrowserWorld::State::UpdateSigilLearning() {
+  const double now = context->GetTimestamp();
+  if (sigilLearnStart <= 0.0) {
+    sigilLearnStart = now;
+  }
+  bool anyHeld = false;
+  for (Controller& controller: controllers->GetControllers()) {
+    if (!controller.enabled || controller.index < 0) {
+      continue;
+    }
+    const uint32_t held = controller.buttonState & kSigilAllowedButtons;
+    anyHeld = anyHeld || held != 0;
+    (controller.leftHanded ? sigilLearnLeft : sigilLearnRight) |= held;
+    // While detecting, these presses are only for the detector, not for clicking the page.
+    controller.buttonState &= ~kSigilAllowedButtons;
+    controller.lastButtonState &= ~kSigilAllowedButtons;
+  }
+  const bool gotSomething = (sigilLearnLeft | sigilLearnRight) != 0;
+  const bool timedOut = (now - sigilLearnStart) > 15.0;
+  if ((gotSomething && !anyHeld) || timedOut) {
+    sigilLearning = false;
+    VRBrowser::OnSigilComboLearned(timedOut && !gotSomething ? 0 : (jint) sigilLearnLeft,
+                                   timedOut && !gotSomething ? 0 : (jint) sigilLearnRight);
+  }
+}
+
 void
 BrowserWorld::State::UpdateSigil() {
+  if (sigilLearning) {
+    UpdateSigilLearning();
+    return;
+  }
   if (sigilReloadRequested) {
     sigilReloadRequested = false;
     if (!sigil) {
@@ -734,29 +784,30 @@ BrowserWorld::State::UpdateSigil() {
     return;
   }
 
-  bool combo = false;
-  bool dismiss = false;
+  bool leftCombo = sigilComboLeft == 0, rightCombo = sigilComboRight == 0;
+  bool leftDismiss = false, rightDismiss = false;
   for (Controller& controller: controllers->GetControllers()) {
     if (!controller.enabled || controller.index < 0) {
       continue;
     }
-    if (controller.leftHanded) {
-      dismiss = controller.buttonState & ControllerDelegate::BUTTON_X;
-      if (sigilOn || sigilSuppressed) {
-        // X is the emergency dismiss here; keep it from also toggling the media controls.
-        controller.buttonState &= ~ControllerDelegate::BUTTON_X;
-        controller.lastButtonState &= ~ControllerDelegate::BUTTON_X;
-      }
-    } else {
-      combo = (controller.buttonState & ControllerDelegate::BUTTON_A) &&
-              (controller.buttonState & ControllerDelegate::BUTTON_B);
-      // A and B belong to the trigger in video mode: without this, B alone would
-      // leave 360 mode ("back") and A alone would toggle the media controls.
-      const uint32_t mask = ControllerDelegate::BUTTON_A | ControllerDelegate::BUTTON_B;
-      controller.buttonState &= ~mask;
-      controller.lastButtonState &= ~mask;
+    const uint32_t comboMask = controller.leftHanded ? sigilComboLeft : sigilComboRight;
+    const uint32_t dismissMask = controller.leftHanded ? sigilDismissLeft : sigilDismissRight;
+    const bool held = comboMask == 0 || (controller.buttonState & comboMask) == comboMask;
+    const bool dismissHeld = dismissMask != 0 && (controller.buttonState & dismissMask) == dismissMask;
+    (controller.leftHanded ? leftCombo : rightCombo) = held;
+    (controller.leftHanded ? leftDismiss : rightDismiss) = dismissHeld;
+
+    // The trigger's buttons belong to it in video mode: without this, B or Y alone would
+    // leave 360 mode ("back") and A or X alone would toggle the media controls.
+    uint32_t mask = comboMask;
+    if (sigilOn || sigilSuppressed) {
+      mask |= dismissMask;
     }
+    controller.buttonState &= ~mask;
+    controller.lastButtonState &= ~mask;
   }
+  const bool combo = (sigilComboLeft | sigilComboRight) != 0 && leftCombo && rightCombo;
+  const bool dismiss = leftDismiss || rightDismiss;
 
   if (dismiss && !sigilPrevDismiss) {
     SetSigilVisible(false);
@@ -1871,12 +1922,33 @@ BrowserWorld::HideVRVideo() {
 }
 
 void
-BrowserWorld::SetSigilConfig(const std::string& aPath, const int aMode, const float aSizeDegrees) {
+BrowserWorld::SetSigilConfig(const std::string& aPath, const int aMode, const float aSizeDegrees,
+                             const uint32_t aComboLeft, const uint32_t aComboRight,
+                             const uint32_t aDismissLeft, const uint32_t aDismissRight) {
   ASSERT_ON_RENDER_THREAD();
+  // Only face buttons and grips can be used; the trigger and thumbsticks stay with the browser.
+  const uint32_t allowed = kSigilAllowedButtons;
+  if (((aComboLeft | aComboRight) & allowed) != 0) {
+    m.sigilComboLeft = aComboLeft & allowed;
+    m.sigilComboRight = aComboRight & allowed;
+    m.sigilDismissLeft = aDismissLeft & allowed & ~m.sigilComboLeft;
+    m.sigilDismissRight = aDismissRight & allowed & ~m.sigilComboRight;
+  }
   m.sigilPath = aPath;
   m.sigilMode = aMode;
   m.sigilSizeDegrees = aSizeDegrees;
   m.sigilReloadRequested = true;
+}
+
+void
+BrowserWorld::StartSigilComboLearning() {
+  ASSERT_ON_RENDER_THREAD();
+  if (m.sigilOn) {
+    m.SetSigilVisible(false);
+  }
+  m.sigilLearning = true;
+  m.sigilLearnStart = 0.0;
+  m.sigilLearnLeft = m.sigilLearnRight = 0;
 }
 
 void
@@ -2377,12 +2449,19 @@ JNI_METHOD(void, hideVRVideoNative)
 }
 
 JNI_METHOD(void, setSigilConfigNative)
-(JNIEnv* aEnv, jobject, jstring aPath, jint aMode, jfloat aSizeDegrees) {
+(JNIEnv* aEnv, jobject, jstring aPath, jint aMode, jfloat aSizeDegrees,
+ jint aComboLeft, jint aComboRight, jint aDismissLeft, jint aDismissRight) {
   const char* path = aEnv->GetStringUTFChars(aPath, nullptr);
-  crow::BrowserWorld::Instance().SetSigilConfig(path ? std::string(path) : std::string(), aMode, aSizeDegrees);
+  crow::BrowserWorld::Instance().SetSigilConfig(path ? std::string(path) : std::string(), aMode, aSizeDegrees,
+      (uint32_t) aComboLeft, (uint32_t) aComboRight, (uint32_t) aDismissLeft, (uint32_t) aDismissRight);
   if (path) {
     aEnv->ReleaseStringUTFChars(aPath, path);
   }
+}
+
+JNI_METHOD(void, startSigilComboLearningNative)
+(JNIEnv*, jobject) {
+  crow::BrowserWorld::Instance().StartSigilComboLearning();
 }
 
 JNI_METHOD(void, setControllersVisibleNative)

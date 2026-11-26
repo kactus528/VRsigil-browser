@@ -257,7 +257,22 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
     private Media mSigilPausedMedia = null;
     private final com.igalia.wolvic.sigil.SigilTone mSigilTone = new com.igalia.wolvic.sigil.SigilTone();
     private final com.igalia.wolvic.sigil.SigilStore.Listener mSigilListener =
-            (path, mode, size) -> queueRunnable(() -> setSigilConfigNative(path, mode, size));
+            new com.igalia.wolvic.sigil.SigilStore.Listener() {
+                @Override
+                public void onSigilChanged(@NonNull com.igalia.wolvic.sigil.SigilStore store) {
+                    final String path = store.getImagePath();
+                    final int mode = store.getMode();
+                    final float size = store.getSizeDegrees();
+                    final int comboLeft = store.getComboLeft(), comboRight = store.getComboRight();
+                    final int dismissLeft = store.getDismissLeft(), dismissRight = store.getDismissRight();
+                    queueRunnable(() -> setSigilConfigNative(path, mode, size, comboLeft, comboRight, dismissLeft, dismissRight));
+                }
+
+                @Override
+                public void onComboLearnRequested() {
+                    queueRunnable(() -> startSigilComboLearningNative());
+                }
+            };
     private boolean mIsPassthroughEnabled = false;
     private boolean mIsHandTrackingEnabled = true;
     private boolean mIsHandTrackingSupported = false;
@@ -363,6 +378,7 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
         queueRunnable(() -> setTemporaryFilePath(tempPath));
 
         initializeWidgets();
+        com.igalia.wolvic.sigil.SigilStore.get(this).addListener(mSigilListener);
 
         loadFromIntent(getIntent());
 
@@ -1563,6 +1579,18 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
         });
     }
 
+    // Called from the render thread when combo detection finishes.
+    @Keep
+    @SuppressWarnings("unused")
+    private void onSigilComboLearned(final int aLeftMask, final int aRightMask) {
+        runOnUiThread(() -> {
+            String back = com.igalia.wolvic.sigil.SigilStore.get(this).takeLearnResult(aLeftMask, aRightMask);
+            if (back != null) {
+                SessionStore.get().getActiveSession().loadUri(back);
+            }
+        });
+    }
+
     // Called from the render thread when the sigil trigger shows or hides the sigil.
     @Keep
     @SuppressWarnings("unused")
@@ -2316,7 +2344,9 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
     private native void updatePointerColorNative();
     private native void showVRVideoNative(int aWindowHandler, int aVideoProjection);
     private native void hideVRVideoNative();
-    private native void setSigilConfigNative(String aPath, int aMode, float aSizeDegrees);
+    private native void startSigilComboLearningNative();
+    private native void setSigilConfigNative(String aPath, int aMode, float aSizeDegrees,
+                                             int aComboLeft, int aComboRight, int aDismissLeft, int aDismissRight);
     private native void togglePassthroughNative();
     private native void setLockEnabledNative(@LockMode int aLockMode);
     private native void recenterUIYawNative(@YawTarget int aTarget);

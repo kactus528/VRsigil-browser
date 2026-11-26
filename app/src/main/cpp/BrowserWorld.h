@@ -70,7 +70,10 @@ public:
   void ExitImmersive();
   void ShowVRVideo(const int aWindowHandle, const int aVideoProjection);
   void HideVRVideo();
-  void SetSigilConfig(const std::string& aPath, const int aMode, const float aSizeDegrees);
+  void SetSigilConfig(const std::string& aPath, const int aMode, const float aSizeDegrees,
+                      const uint32_t aComboLeft, const uint32_t aComboRight,
+                      const uint32_t aDismissLeft, const uint32_t aDismissRight);
+  void StartSigilComboLearning();
   void SetControllersVisible(const bool aVisible);
   enum class YawTarget { ALL, WIDGETS };
   void RecenterUIYaw(const YawTarget aTarget);
