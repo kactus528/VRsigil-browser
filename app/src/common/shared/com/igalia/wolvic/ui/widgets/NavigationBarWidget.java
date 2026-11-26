@@ -1361,6 +1361,13 @@ public class NavigationBarWidget extends UIWidget implements WSession.Navigation
             }
 
             @Override
+            public void onSigilMaker() {
+                hideMenu();
+                mAttachedWindow.closeLibrary();
+                getSession().loadUri(com.igalia.wolvic.sigil.SigilStore.MAKER_URL);
+            }
+
+            @Override
             public void onPassthrough() {
                 mWidgetManager.togglePassthrough();
 

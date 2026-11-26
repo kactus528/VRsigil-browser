@@ -46,6 +46,7 @@ public class HamburgerMenuWidget extends UIWidget implements
         void onSendTab();
         void onResize();
         void onFindInPage();
+        default void onSigilMaker() {}
         void onSwitchMode();
         void onAddons();
         void onSaveWebApp();
@@ -311,6 +312,19 @@ public class HamburgerMenuWidget extends UIWidget implements
                     .withIcon(R.drawable.ic_icon_search)
                     .build());
         }
+
+        // Sigil Trigger: open the built-in Sigil Maker.
+        mItems.add(new HamburgerMenuAdapter.MenuItem.Builder(
+                HamburgerMenuAdapter.MenuItem.TYPE_DEFAULT,
+                (menuItem) -> {
+                    if (mDelegate != null) {
+                        mDelegate.onSigilMaker();
+                    }
+                    return null;
+                })
+                .withTitle("Sigil Maker")
+                .withIcon(R.drawable.ic_icon_addons)
+                .build());
 
         mItems.add(new HamburgerMenuAdapter.MenuItem.Builder(
                 HamburgerMenuAdapter.MenuItem.TYPE_DEFAULT,
