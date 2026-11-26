@@ -8,6 +8,9 @@ on:
     branches: [ main, sigil-trigger ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,3 +43,15 @@ jobs:
           name: sigil-trigger-quest-apk
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+      - name: Publish as the "latest" release (plain APK download link)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
+          cp "$APK" sigil-trigger-browser.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest sigil-trigger-browser.apk \
+            --title "Sigil Trigger browser (build ${{ github.run_number }})" \
+            --notes "Built from ${{ github.sha }}. Sideload onto the Quest with SideQuest or Bugjaeger." \
+            --target ${{ github.sha }}
