@@ -79,6 +79,11 @@ public class SigilStore {
     }
 
     public int getMode() { return prefs().getInt("mode", MODE_HOLD); }
+    public int getSoundMode() { return prefs().getInt("sound", SigilTone.SOUND_OFF); }
+    public float getCarrierHz() { return prefs().getFloat("carrier", 200f); }
+    public float getBeatHz() { return prefs().getFloat("beat", 6f); }
+    public float getVolume() { return prefs().getFloat("volume", 0.4f); }
+    public float getFadeInSeconds() { return prefs().getFloat("fade", 3f); }
     public float getSizeDegrees() { return prefs().getFloat("size", 40f); }
 
     /**
@@ -114,6 +119,20 @@ public class SigilStore {
             if (size != null) {
                 editor.putFloat("size", Math.max(5f, Math.min(100f, Float.parseFloat(size))));
             }
+            String sound = uri.getQueryParameter("sound");
+            if (sound != null) {
+                int soundMode = SigilTone.SOUND_OFF;
+                switch (sound) {
+                    case "binaural": soundMode = SigilTone.SOUND_BINAURAL; break;
+                    case "isochronic": soundMode = SigilTone.SOUND_ISOCHRONIC; break;
+                    case "both": soundMode = SigilTone.SOUND_BOTH; break;
+                }
+                editor.putInt("sound", soundMode);
+            }
+            putFloat(editor, uri, "carrier", 40f, 1500f);
+            putFloat(editor, uri, "beat", 0.5f, 45f);
+            putFloat(editor, uri, "volume", 0f, 1f);
+            putFloat(editor, uri, "fade", 0f, 60f);
             editor.apply();
         } catch (Exception e) {
             Log.e(LOGTAG, "Could not save sigil: " + e);
@@ -134,6 +153,17 @@ public class SigilStore {
     public void notifyChanged() {
         for (Listener listener : mListeners) {
             listener.onSigilChanged(getImagePath(), getMode(), getSizeDegrees());
+        }
+    }
+
+    private static void putFloat(SharedPreferences.Editor aEditor, Uri aUri, String aKey, float aMin, float aMax) {
+        String value = aUri.getQueryParameter(aKey);
+        if (value == null) {
+            return;
+        }
+        try {
+            aEditor.putFloat(aKey, Math.max(aMin, Math.min(aMax, Float.parseFloat(value))));
+        } catch (NumberFormatException ignored) {
         }
     }
 

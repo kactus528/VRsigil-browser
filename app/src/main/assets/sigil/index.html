@@ -72,6 +72,34 @@
         <option value="hold">Hold A+B to show</option>
         <option value="toggle">Press A+B to show, again to dismiss</option>
       </select>
+      <h2 style="font-size:15px;color:var(--accent);margin:20px 0 0">Sound while the sigil shows</h2>
+      <label for="sound">Type</label>
+      <select id="sound">
+        <option value="off">Off</option>
+        <option value="binaural">Binaural beats (needs stereo: headset speakers or headphones)</option>
+        <option value="isochronic">Isochronic tones</option>
+        <option value="both">Both</option>
+      </select>
+      <div id="soundBox">
+        <label for="preset">Beat preset</label>
+        <select id="preset">
+          <option value="">Custom</option>
+          <option value="2">Delta · 2 Hz</option>
+          <option value="6">Theta · 6 Hz</option>
+          <option value="10">Alpha · 10 Hz</option>
+          <option value="18">Beta · 18 Hz</option>
+          <option value="40">Gamma · 40 Hz</option>
+        </select>
+        <label for="beat">Beat: <span id="beatOut"></span> Hz</label>
+        <input type="range" id="beat" min="0.5" max="45" step="0.5" value="6">
+        <label for="carrier">Carrier tone: <span id="carrierOut"></span> Hz</label>
+        <input type="range" id="carrier" min="60" max="800" step="5" value="200">
+        <label for="volume">Volume: <span id="volumeOut"></span>%</label>
+        <input type="range" id="volume" min="5" max="100" step="5" value="40">
+        <label for="fade">Fade in: <span id="fadeOut"></span> s</label>
+        <input type="range" id="fade" min="0" max="20" step="0.5" value="3">
+        <button id="preview" style="width:100%;margin-top:12px">Preview sound (5 s)</button>
+      </div>
       <button id="send">Send to Sigil Trigger browser</button>
       <p id="msg" role="status"></p>
     </section>
@@ -88,10 +116,11 @@ const store = {
   save(o) { try { localStorage.setItem('sigilMaker', JSON.stringify(o)); } catch {} }
 };
 const saved = store.load();
-['intent','color','size','mode'].forEach(k => { if (saved[k] != null) $(k).value = saved[k]; });
+['intent','color','size','mode','sound','beat','carrier','volume','fade'].forEach(k => { if (saved[k] != null) $(k).value = saved[k]; });
 ['novowels','ring'].forEach(k => { if (saved[k] != null) $(k).checked = saved[k]; });
 let seed = saved.seed ?? 1, turns = saved.turns ?? 0, source = 'intent', imported = null;
 const persist = () => store.save({ intent:$('intent').value, color:$('color').value, size:$('size').value, mode:$('mode').value,
+  sound:$('sound').value, beat:$('beat').value, carrier:$('carrier').value, volume:$('volume').value, fade:$('fade').value,
   novowels:$('novowels').checked, ring:$('ring').checked, seed, turns });
 
 // Single-stroke letter skeletons on a -1..1 grid (y down)
@@ -206,6 +235,8 @@ $('send').addEventListener('click', () => {
   const b64 = canvas.toDataURL('image/png').split(',')[1].replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const back = location.href.split('#')[0];
   const url = 'https://sigil.invalid/set?mode=' + $('mode').value + '&size=' + $('size').value +
+              '&sound=' + $('sound').value + '&beat=' + $('beat').value + '&carrier=' + $('carrier').value +
+              '&volume=' + ($('volume').value / 100) + '&fade=' + $('fade').value +
               '&back=' + encodeURIComponent(back) + '&img=' + b64;
   setMsg('Sending…');
   location.href = url;
@@ -215,6 +246,57 @@ $('send').addEventListener('click', () => {
 });
 
 let noAnswer = 0;
+/* ---- sound settings + preview (same recipe as the browser's tone generator) ---- */
+function syncSound() {
+  $('soundBox').hidden = $('sound').value === 'off';
+  $('beatOut').textContent = $('beat').value;
+  $('carrierOut').textContent = $('carrier').value;
+  $('volumeOut').textContent = $('volume').value;
+  $('fadeOut').textContent = $('fade').value;
+  $('preset').value = ['2','6','10','18','40'].includes($('beat').value) ? $('beat').value : '';
+}
+['sound','beat','carrier','volume','fade'].forEach(k => $(k).addEventListener('input', () => { syncSound(); persist(); }));
+$('preset').addEventListener('change', () => { if ($('preset').value) { $('beat').value = $('preset').value; syncSound(); persist(); } });
+
+let previewCtx = null;
+$('preview').addEventListener('click', () => {
+  const kind = $('sound').value; if (kind === 'off') return;
+  try { if (previewCtx) previewCtx.close(); } catch {}
+  let ac;
+  try { ac = previewCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch { setMsg('This browser can’t play the preview.', 'bad'); return; }
+  const beat = +$('beat').value, carrier = +$('carrier').value, vol = $('volume').value / 100 * 0.5, fade = +$('fade').value;
+  const both = kind === 'both', mix = both ? 0.5 : 1, t0 = ac.currentTime, end = t0 + Math.max(5, fade + 2);
+  const master = ac.createGain();
+  master.gain.setValueAtTime(0.0001, t0);
+  // Same squared curve as the headset: gain = (t / fade)^2
+  const steps = 40;
+  for (let i = 1; i <= steps; i++) { const f = i / steps; master.gain.linearRampToValueAtTime(vol * f * f, t0 + fade * f + 0.001); }
+  master.gain.setValueAtTime(vol, end - 0.25);
+  master.gain.linearRampToValueAtTime(0.0001, end);
+  master.connect(ac.destination);
+  if (kind === 'binaural' || both) {
+    const merger = ac.createChannelMerger(2);
+    [carrier - beat / 2, carrier + beat / 2].forEach((f, ch) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.frequency.value = f; g.gain.value = mix; o.connect(g).connect(merger, 0, ch); o.start(t0); o.stop(end);
+    });
+    merger.connect(master);
+  }
+  if (kind === 'isochronic' || both) {
+    const o = ac.createOscillator(), env = ac.createGain();
+    o.frequency.value = carrier; env.gain.value = 0;
+    const period = 1 / beat;
+    for (let t = t0; t < end; t += period) {
+      env.gain.setValueAtTime(0, t);
+      env.gain.linearRampToValueAtTime(mix, t + period * 0.1);
+      env.gain.setValueAtTime(mix, t + period * 0.4);
+      env.gain.linearRampToValueAtTime(0, t + period * 0.5);
+    }
+    o.connect(env).connect(master); o.start(t0); o.stop(end);
+  }
+});
+syncSound();
+
 function showResult() {
   clearTimeout(noAnswer);
   if (location.hash === '#saved') setMsg('Saved. Press A+B during a 360° video to see it.', 'ok');

@@ -255,6 +255,7 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
     private ScheduledFuture<?> mNativeWidgetUpdatesTask = null;
     private Media mPrevActiveMedia = null;
     private Media mSigilPausedMedia = null;
+    private final com.igalia.wolvic.sigil.SigilTone mSigilTone = new com.igalia.wolvic.sigil.SigilTone();
     private final com.igalia.wolvic.sigil.SigilStore.Listener mSigilListener =
             (path, mode, size) -> queueRunnable(() -> setSigilConfigNative(path, mode, size));
     private boolean mIsPassthroughEnabled = false;
@@ -646,6 +647,7 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
 
     @Override
     protected void onPause() {
+        mSigilTone.stop();
         if (mIsPresentingImmersive.getValue()) {
             // This needs to be sync to ensure that WebVR is correctly paused.
             // Also prevents a deadlock in onDestroy when the BrowserWidget is released.
@@ -1567,6 +1569,13 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
     private void onSigilStateChanged(final boolean aShown) {
         runOnUiThread(() -> {
             Media media = SessionStore.get().getActiveSession().getActiveVideo();
+            com.igalia.wolvic.sigil.SigilStore store = com.igalia.wolvic.sigil.SigilStore.get(this);
+            if (aShown) {
+                mSigilTone.start(store.getSoundMode(), store.getCarrierHz(), store.getBeatHz(),
+                        store.getVolume(), store.getFadeInSeconds());
+            } else {
+                mSigilTone.stop();
+            }
             if (aShown) {
                 if (media != null && media.isPlaying()) {
                     mSigilPausedMedia = media;
