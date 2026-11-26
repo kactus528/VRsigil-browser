@@ -40,8 +40,8 @@ public class SigilTone {
             return;
         }
         final int mode = aMode;
-        final float carrier = clamp(aCarrierHz, 40f, 1500f);
-        final float beat = clamp(aBeatHz, 0.5f, 45f);
+        final float carrier = clamp(aCarrierHz, 20f, 2000f);
+        final float beat = clamp(aBeatHz, 0.1f, 100f);
         final float volume = clamp(aVolume, 0f, 1f) * 0.5f;   // keep full scale well below clipping
         final float fadeIn = clamp(aFadeInSeconds, 0f, 60f);
         final java.util.concurrent.atomic.AtomicBoolean flag = new java.util.concurrent.atomic.AtomicBoolean(false);

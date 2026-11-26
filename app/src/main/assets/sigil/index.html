@@ -32,6 +32,9 @@
   .tabs button[aria-pressed=true] { border-color:var(--accent); color:var(--accent); }
   .help { color:var(--dim); font-size:15px; }
   .help b { color:var(--text); }
+  .pair { display:flex; gap:10px; align-items:center; }
+  .pair input[type=range] { flex:1 1 auto; }
+  .pair input[type=number] { flex:0 0 110px; padding:10px; border-radius:8px; border:1px solid var(--line); background:#0f0f12; color:var(--text); font-size:17px; }
 </style>
 </head>
 <body>
@@ -90,10 +93,28 @@
           <option value="18">Beta · 18 Hz</option>
           <option value="40">Gamma · 40 Hz</option>
         </select>
-        <label for="beat">Beat: <span id="beatOut"></span> Hz</label>
-        <input type="range" id="beat" min="0.5" max="45" step="0.5" value="6">
-        <label for="carrier">Carrier tone: <span id="carrierOut"></span> Hz</label>
-        <input type="range" id="carrier" min="60" max="800" step="5" value="200">
+        <label for="beatNum">Beat (Hz)</label>
+        <div class="pair"><input type="range" id="beat" min="0.1" max="100" step="0.1" value="6" aria-label="Beat slider">
+          <input type="number" id="beatNum" min="0.1" max="100" step="any" inputmode="decimal"></div>
+        <label for="tonePreset">Carrier preset</label>
+        <select id="tonePreset">
+          <option value="">Custom</option>
+          <option value="174">Solfeggio 174 Hz</option>
+          <option value="285">Solfeggio 285 Hz</option>
+          <option value="396">Solfeggio 396 Hz (UT)</option>
+          <option value="417">Solfeggio 417 Hz (RE)</option>
+          <option value="528">Solfeggio 528 Hz (MI)</option>
+          <option value="639">Solfeggio 639 Hz (FA)</option>
+          <option value="741">Solfeggio 741 Hz (SOL)</option>
+          <option value="852">Solfeggio 852 Hz (LA)</option>
+          <option value="963">Solfeggio 963 Hz</option>
+          <option value="432">432 Hz</option>
+          <option value="200">200 Hz (classic binaural carrier)</option>
+        </select>
+        <label for="carrierNum">Carrier tone (Hz)</label>
+        <div class="pair"><input type="range" id="carrier" min="20" max="2000" step="0.01" value="200" aria-label="Carrier slider">
+          <input type="number" id="carrierNum" min="20" max="2000" step="any" inputmode="decimal"></div>
+        <p class="help" id="earNote" style="margin:6px 0 0;font-size:14px"></p>
         <label for="volume">Volume: <span id="volumeOut"></span>%</label>
         <input type="range" id="volume" min="5" max="100" step="5" value="40">
         <label for="fade">Fade in: <span id="fadeOut"></span> s</label>
@@ -247,16 +268,38 @@ $('send').addEventListener('click', () => {
 
 let noAnswer = 0;
 /* ---- sound settings + preview (same recipe as the browser's tone generator) ---- */
+const num = id => +$(id).value;
 function syncSound() {
   $('soundBox').hidden = $('sound').value === 'off';
-  $('beatOut').textContent = $('beat').value;
-  $('carrierOut').textContent = $('carrier').value;
+  if (document.activeElement !== $('beatNum')) $('beatNum').value = $('beat').value;
+  if (document.activeElement !== $('carrierNum')) $('carrierNum').value = $('carrier').value;
   $('volumeOut').textContent = $('volume').value;
   $('fadeOut').textContent = $('fade').value;
-  $('preset').value = ['2','6','10','18','40'].includes($('beat').value) ? $('beat').value : '';
+  const b = num('beat'), c = num('carrier');
+  $('preset').value = [...$('preset').options].some(o => o.value && +o.value === b) ? String(b) : '';
+  $('tonePreset').value = [...$('tonePreset').options].some(o => o.value && +o.value === c) ? String(c) : '';
+  const bin = $('sound').value === 'binaural' || $('sound').value === 'both';
+  $('earNote').textContent = bin
+    ? `Left ear ${(c - b / 2).toFixed(2)} Hz · right ear ${(c + b / 2).toFixed(2)} Hz`
+    : `Pulses ${b} times a second at ${c} Hz`;
 }
+// Typed values: accept anything in range, with decimals; the slider follows.
+function bindNumber(numId, rangeId) {
+  const apply = () => {
+    const v = parseFloat($(numId).value);
+    if (isNaN(v)) return;
+    const lo = +$(numId).min, hi = +$(numId).max;
+    $(rangeId).value = String(Math.min(hi, Math.max(lo, v)));
+    syncSound(); persist();
+  };
+  $(numId).addEventListener('input', apply);
+  $(numId).addEventListener('change', () => { apply(); $(numId).value = $(rangeId).value; });
+}
+bindNumber('beatNum', 'beat');
+bindNumber('carrierNum', 'carrier');
 ['sound','beat','carrier','volume','fade'].forEach(k => $(k).addEventListener('input', () => { syncSound(); persist(); }));
 $('preset').addEventListener('change', () => { if ($('preset').value) { $('beat').value = $('preset').value; syncSound(); persist(); } });
+$('tonePreset').addEventListener('change', () => { if ($('tonePreset').value) { $('carrier').value = $('tonePreset').value; syncSound(); persist(); } });
 
 let previewCtx = null;
 $('preview').addEventListener('click', () => {

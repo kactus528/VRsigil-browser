@@ -129,8 +129,8 @@ public class SigilStore {
                 }
                 editor.putInt("sound", soundMode);
             }
-            putFloat(editor, uri, "carrier", 40f, 1500f);
-            putFloat(editor, uri, "beat", 0.5f, 45f);
+            putFloat(editor, uri, "carrier", 20f, 2000f);
+            putFloat(editor, uri, "beat", 0.1f, 100f);
             putFloat(editor, uri, "volume", 0f, 1f);
             putFloat(editor, uri, "fade", 0f, 60f);
             editor.apply();
