@@ -158,6 +158,12 @@
   <section class="help" style="margin-top:16px">
     <b>How to use it.</b> In the Sigil Trigger browser on your Quest, type <b>sigil.invalid</b> in the address bar to open this page, then press Send. Then play any 360° or 180° video (YouTube works), go full screen and pick 360°. Press <b>A+B</b> on the right controller for the sigil; the video pauses underneath and picks up where it stopped. <b>X</b> on the left controller dismisses it instantly. In any other browser, Send does nothing.
   </section>
+  <section class="help" style="margin-top:16px">
+    <b>Troubleshooting.</b> If the browser crashed, this shows what went wrong so you can copy it to Claude.
+    <button id="crashBtn" style="width:100%;margin-top:10px">Show last crash report</button>
+    <pre id="crashLog" hidden style="white-space:pre-wrap;word-break:break-word;max-height:320px;overflow:auto;background:#0f0f12;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;color:var(--text);margin:10px 0 0"></pre>
+    <button id="crashCopy" hidden style="width:100%;margin-top:8px">Copy report</button>
+  </section>
 </main>
 <div id="fullView" role="dialog" aria-label="Full-window preview"><canvas id="fullCanvas"></canvas><p>Tap anywhere to close</p></div>
 <script>
@@ -438,8 +444,29 @@ $('preview').addEventListener('click', () => {
 });
 syncSound();
 
+$('crashBtn').addEventListener('click', () => { location.href = 'https://sigil.invalid/crashlog'; });
+$('crashCopy').addEventListener('click', async () => {
+  const text = $('crashLog').textContent;
+  try { await navigator.clipboard.writeText(text); $('crashCopy').textContent = 'Copied'; }
+  catch { const r = document.createRange(); r.selectNodeContents($('crashLog')); getSelection().removeAllRanges(); getSelection().addRange(r); $('crashCopy').textContent = 'Selected: use Copy from the menu'; }
+});
+function showCrash(b64) {
+  let text = 'No crash has been recorded.';
+  if (b64 !== 'none') {
+    try {
+      const bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
+      text = new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
+    } catch { text = 'The crash report could not be read.'; }
+  }
+  $('crashLog').textContent = text; $('crashLog').hidden = false;
+  $('crashCopy').hidden = b64 === 'none';
+  $('crashLog').scrollIntoView({ block: 'center' });
+}
+
 function showResult() {
   clearTimeout(noAnswer);
+  const c = /^#crash=([A-Za-z0-9_-]+)$/.exec(location.hash);
+  if (c) { showCrash(c[1]); try { history.replaceState(null, '', location.href.split('#')[0]); } catch {} return; }
   const m = /^#combo=([A-Z,]+)$/.exec(location.hash);
   if (m) {
     if (m[1] === 'NONE') setMsg('No buttons detected. Tap Detect and try again.', 'bad');

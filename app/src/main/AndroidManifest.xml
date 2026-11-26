@@ -14,7 +14,9 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
 
     <!-- Requested by GeckoView but not needed in VR -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="remove"/>
+    <!-- Sigil build: the stock GeckoView engine takes a wake lock as soon as audio or video
+         plays, and crashes without this permission (Wolvic's own patched engine doesn't). -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove"/>
 
     <application

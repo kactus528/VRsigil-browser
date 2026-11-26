@@ -97,6 +97,7 @@ public class VRBrowserApplication extends Application implements AppServicesProv
     @Override
     public void onCreate() {
         super.onCreate();
+        com.igalia.wolvic.sigil.SigilStore.installCrashRecorder(this);
         // TODO: eventually add .penaltyDeath() to the policies once we have fixed all the issues.
         if (BuildConfig.DEBUG) {
             StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder()

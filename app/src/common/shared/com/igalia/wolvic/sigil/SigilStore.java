@@ -45,6 +45,63 @@ public class SigilStore {
     }
 
     private static final String LEARN_PREFIX = "https://sigil.invalid/learn";
+    private static final String CRASHLOG_PREFIX = "https://sigil.invalid/crashlog";
+    private static final String CRASH_FILE = "last-crash.txt";
+
+    /** Saves the stack trace of any crash on a Java thread so the Sigil Maker can show it. */
+    public static void installCrashRecorder(@NonNull Context aContext) {
+        final Context app = aContext.getApplicationContext();
+        final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        if (previous instanceof CrashRecorder) {
+            return;
+        }
+        Thread.setDefaultUncaughtExceptionHandler(new CrashRecorder(app, previous));
+    }
+
+    private static class CrashRecorder implements Thread.UncaughtExceptionHandler {
+        private final Context mApp;
+        private final Thread.UncaughtExceptionHandler mPrevious;
+        CrashRecorder(Context aApp, Thread.UncaughtExceptionHandler aPrevious) { mApp = aApp; mPrevious = aPrevious; }
+        @Override
+        public void uncaughtException(@NonNull Thread aThread, @NonNull Throwable aError) {
+            try (FileOutputStream out = new FileOutputStream(new File(mApp.getFilesDir(), CRASH_FILE))) {
+                String text = "Crash on thread \"" + aThread.getName() + "\" at " + new java.util.Date() + "\n"
+                        + "Android " + android.os.Build.VERSION.RELEASE + " (SDK " + android.os.Build.VERSION.SDK_INT + "), "
+                        + android.os.Build.MODEL + "\n\n" + Log.getStackTraceString(aError);
+                out.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception ignored) {
+            }
+            if (mPrevious != null) {
+                mPrevious.uncaughtException(aThread, aError);
+            }
+        }
+    }
+
+    public static boolean isCrashLogUri(@Nullable String aUri) {
+        return aUri != null && aUri.startsWith(CRASHLOG_PREFIX);
+    }
+
+    /** @return the Sigil Maker with the last crash report in its hash ("#crash=..." or "#crash=none"). */
+    @NonNull
+    public String crashLogResult() {
+        String text = null;
+        File file = new File(mContext.getFilesDir(), CRASH_FILE);
+        if (file.exists()) {
+            try {
+                byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
+                text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+            }
+        }
+        if (text == null || text.isEmpty()) {
+            return MAKER_URL + "#crash=none";
+        }
+        if (text.length() > 60000) {
+            text = text.substring(0, 60000);
+        }
+        return MAKER_URL + "#crash=" + Base64.encodeToString(text.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
+    }
     @Nullable private String mPendingLearnBack;
 
     // Controller button bits, matching ControllerDelegate::Button in the native code.
@@ -113,7 +170,7 @@ public class SigilStore {
     }
 
     public static boolean isMakerShortcut(@Nullable String aUri) {
-        return aUri != null && !isHandoffUri(aUri) && !isLearnUri(aUri)
+        return aUri != null && !isHandoffUri(aUri) && !isLearnUri(aUri) && !isCrashLogUri(aUri)
                 && (aUri.startsWith("https://sigil.invalid") || aUri.startsWith("http://sigil.invalid"));
     }
 
