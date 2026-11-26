@@ -728,7 +728,7 @@ dependencies {
     visionglassImplementation libs.huawei.hms.mlcomputervoiceasr
 
     // gecko
-    def branch = "nightly" // "release", "nightly" or "beta"
+    def branch = "release" // "release", "nightly" or "beta". Sigil build: stable engine (nightly crashed on media playback)
     geckoImplementation libs.geckoview."${branch}".x64
     geckoImplementation libs.geckoview."${branch}".arm64
     configurations.all {
